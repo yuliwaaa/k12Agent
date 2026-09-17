@@ -1,0 +1,12 @@
+.venv/
+.env
+.gradio/
+__pycache__/
+*.pyc
+.idea/workspace.xml
+.vscode/settings.json
+data/chroma/
+data/audio/
+data/images/
+data/progress/
+*.mp3

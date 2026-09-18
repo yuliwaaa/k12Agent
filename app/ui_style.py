@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+from pathlib import Path
+
 import gradio as gr
 
 # 品牌色：青绿主色 + 暖橙点缀（避免紫/奶油模板风）
@@ -16,7 +19,89 @@ BRAND = {
     "line": "#E2E8F0",
 }
 
-CUSTOM_CSS = """
+_PUPPY_BG = Path(__file__).resolve().parent.parent / "data" / "images" / "puppy_1080p.png"
+
+
+def _puppy_data_uri() -> str:
+    if not _PUPPY_BG.is_file():
+        return ""
+    encoded = base64.b64encode(_PUPPY_BG.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def _background_css(puppy_uri: str) -> str:
+    """全页约 50% 可见：唯一白罩 50%，控件近透明避免叠层冲淡。"""
+    if not puppy_uri:
+        return """
+.gradio-container,
+.main,
+.wrap {
+  background:
+    radial-gradient(1200px 480px at 12% -10%, rgba(15, 118, 110, 0.12), transparent 55%),
+    radial-gradient(900px 420px at 95% 0%, rgba(234, 88, 12, 0.08), transparent 50%),
+    linear-gradient(180deg, #F8FAFC 0%, #EEF2F7 100%) !important;
+}
+"""
+    return f"""
+html, body {{
+  min-height: 100%;
+  background: #E8EDF2 !important;
+}}
+
+body::before {{
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: url('{puppy_uri}') center center / cover no-repeat;
+  opacity: 1;
+}}
+
+body::after {{
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.5);
+}}
+
+.gradio-container {{
+  position: relative;
+  z-index: 1;
+  background: transparent !important;
+}}
+
+.gradio-container .main,
+.gradio-container .wrap,
+.main,
+.wrap,
+.contain,
+.fillable {{
+  background: transparent !important;
+}}
+
+.block,
+.form,
+.panel,
+.panel-wrap,
+.tabitem {{
+  background: rgba(255, 255, 255, 0.18) !important;
+}}
+
+textarea,
+input {{
+  background: rgba(255, 255, 255, 0.35) !important;
+}}
+"""
+
+
+def build_custom_css() -> str:
+    puppy_uri = _puppy_data_uri()
+    bg = _background_css(puppy_uri)
+    return (
+        """
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
@@ -39,19 +124,11 @@ CUSTOM_CSS = """
   color: var(--k12-ink) !important;
 }
 
-/* 页面氛围背景 */
-.gradio-container,
-.main,
-.wrap {
-  background:
-    radial-gradient(1200px 480px at 12% -10%, rgba(15, 118, 110, 0.12), transparent 55%),
-    radial-gradient(900px 420px at 95% 0%, rgba(234, 88, 12, 0.08), transparent 50%),
-    linear-gradient(180deg, #F8FAFC 0%, #EEF2F7 100%) !important;
-}
-
+"""
+        + bg
+        + """
 footer { display: none !important; }
 
-/* —— 顶栏品牌 —— */
 .k12-hero {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -61,10 +138,9 @@ footer { display: none !important; }
   margin: 0.5rem 0 1.25rem;
   border-radius: 18px;
   background:
-    linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(240,253,250,0.95) 100%);
-  border: 1px solid rgba(15, 118, 110, 0.12);
+    linear-gradient(135deg, rgba(255,255,255,0.22) 0%, rgba(240,253,250,0.28) 100%);
+  border: 1px solid rgba(15, 118, 110, 0.18);
   box-shadow: var(--k12-shadow);
-  backdrop-filter: blur(8px);
 }
 
 .k12-logo {
@@ -114,8 +190,8 @@ footer { display: none !important; }
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--k12-primary-dark);
-  background: rgba(15, 118, 110, 0.08);
-  border: 1px solid rgba(15, 118, 110, 0.14);
+  background: rgba(15, 118, 110, 0.12);
+  border: 1px solid rgba(15, 118, 110, 0.18);
 }
 
 .k12-pill svg {
@@ -124,7 +200,6 @@ footer { display: none !important; }
   opacity: 0.9;
 }
 
-/* —— 学段条 —— */
 .k12-grade-bar {
   display: flex;
   flex-wrap: wrap;
@@ -134,7 +209,7 @@ footer { display: none !important; }
   padding: 0.85rem 1.1rem;
   margin-bottom: 0.85rem;
   border-radius: var(--k12-radius);
-  background: var(--k12-card);
+  background: rgba(255, 255, 255, 0.22);
   border: 1px solid var(--k12-line);
   box-shadow: var(--k12-shadow);
 }
@@ -167,7 +242,6 @@ footer { display: none !important; }
   color: var(--k12-muted);
 }
 
-/* —— 分区标题 —— */
 .k12-section {
   display: flex;
   align-items: center;
@@ -192,7 +266,6 @@ footer { display: none !important; }
   line-height: 1.45;
 }
 
-/* —— 组件统一 —— */
 .block, .form, .panel-wrap {
   border-radius: var(--k12-radius) !important;
 }
@@ -222,10 +295,9 @@ button:hover {
   transform: translateY(-1px);
 }
 
-/* Tabs */
 .tabs {
   border-radius: 16px !important;
-  background: rgba(255,255,255,0.72) !important;
+  background: rgba(255,255,255,0.22) !important;
   border: 1px solid var(--k12-line) !important;
   padding: 0.35rem !important;
   box-shadow: var(--k12-shadow) !important;
@@ -241,22 +313,19 @@ button:hover {
   border-bottom-color: var(--k12-primary) !important;
 }
 
-/* Chat / inputs */
 .chatbot, textarea, input, .code, .svelte-select-wrap {
   border-radius: 12px !important;
 }
 
 .chatbot {
   border: 1px solid var(--k12-line) !important;
-  background: #fff !important;
+  background: rgba(255, 255, 255, 0.28) !important;
 }
 
-/* 工具条按钮行 */
 .k12-toolbar {
   gap: 0.5rem !important;
 }
 
-/* 三栏智能体 */
 .k12-agent-grid {
   gap: 0.85rem !important;
 }
@@ -281,7 +350,6 @@ button:hover {
   color: var(--k12-primary);
 }
 
-/* 演示步骤 */
 .k12-steps {
   display: grid;
   gap: 0.55rem;
@@ -295,7 +363,7 @@ button:hover {
   align-items: start;
   padding: 0.7rem 0.85rem;
   border-radius: 12px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.22);
   border: 1px solid var(--k12-line);
 }
 
@@ -326,6 +394,10 @@ button:hover {
   .k12-brand { font-size: 1.35rem; }
 }
 """
+    )
+
+
+CUSTOM_CSS = build_custom_css()
 
 
 def build_theme() -> gr.Theme:
@@ -356,8 +428,8 @@ def build_theme() -> gr.Theme:
         button_primary_text_color="#ffffff",
         block_title_text_weight="600",
         block_label_text_weight="600",
-        body_background_fill="#F8FAFC",
-        block_background_fill="#FFFFFF",
+        body_background_fill="transparent",
+        block_background_fill="rgba(255, 255, 255, 0.18)",
         border_color_primary="#E2E8F0",
     )
 

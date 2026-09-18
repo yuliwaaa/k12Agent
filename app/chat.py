@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 from app.config import MAX_HISTORY_TURNS, MAX_USER_CHARS
-from app.llm import LLMError, chat_once
+from app.llm import LLMError, chat_stream
 from app.prompts import DEFAULT_GRADE, get_system_prompt
 from app.rag import format_context, retrieve
 
@@ -23,7 +24,6 @@ def _normalize_history(history: list[dict[str, Any]] | None) -> list[dict[str, s
         if role not in ("user", "assistant") or content is None:
             continue
         if isinstance(content, list):
-            # Gradio multimodal content blocks
             texts = []
             for block in content:
                 if isinstance(block, dict) and block.get("text"):
@@ -34,9 +34,7 @@ def _normalize_history(history: list[dict[str, Any]] | None) -> list[dict[str, s
         text = str(content).strip()
         if text:
             cleaned.append({"role": role, "content": text})
-    # 只保留最近 N 轮（每轮约 2 条）
-    max_msgs = MAX_HISTORY_TURNS * 2
-    return cleaned[-max_msgs:]
+    return cleaned[-(MAX_HISTORY_TURNS * 2) :]
 
 
 def build_messages(
@@ -54,11 +52,60 @@ def build_messages(
             "若不足再补充，但不要编造与片段矛盾的事实。\n"
             f"{context}"
         )
-
     messages: list[dict[str, str]] = [{"role": "system", "content": system}]
     messages.extend(_normalize_history(history))
     messages.append({"role": "user", "content": user_message})
     return messages
+
+
+def _prepare(
+    user_message: str,
+    history: list[dict[str, Any]] | None,
+    grade: str,
+    *,
+    use_rag: bool,
+) -> tuple[str | None, list[dict], list[dict[str, str]] | None]:
+    """返回 (错误文案|None, rag_items, messages|None)。"""
+    text = (user_message or "").strip()
+    if not text:
+        return "请先输入你的问题哦～", [], None
+    if len(text) > MAX_USER_CHARS:
+        return f"问题太长啦（超过 {MAX_USER_CHARS} 字），请缩短后再问。", [], None
+
+    grade = grade or DEFAULT_GRADE
+    rag_items: list[dict] = []
+    if use_rag:
+        try:
+            rag_items = retrieve(text, grade)
+        except Exception:  # noqa: BLE001
+            rag_items = []
+    return None, rag_items, build_messages(text, history, grade, rag_items)
+
+
+def reply_stream(
+    user_message: str,
+    history: list[dict[str, Any]] | None,
+    grade: str,
+    *,
+    use_rag: bool = True,
+) -> Iterator[tuple[str, list[dict]]]:
+    """流式回复：持续 yield (当前已生成文本, RAG结果)。"""
+    err, rag_items, messages = _prepare(user_message, history, grade, use_rag=use_rag)
+    if err or messages is None:
+        yield err or "请先输入你的问题哦～", rag_items
+        return
+
+    answer = ""
+    try:
+        for delta in chat_stream(messages):
+            answer += delta
+            yield answer, rag_items
+        if not answer.strip():
+            yield "抱歉，模型返回了空内容，请稍后重试。", rag_items
+    except LLMError as exc:
+        yield f"抱歉，老师暂时连不上大模型：{exc}", rag_items
+    except Exception as exc:  # noqa: BLE001
+        yield f"抱歉，回答时出错了：{exc}", rag_items
 
 
 def reply(
@@ -68,32 +115,11 @@ def reply(
     *,
     use_rag: bool = True,
 ) -> tuple[str, list[dict]]:
-    """
-    返回 (助手回复, RAG检索结果)。
-    失败时返回友好错误文案，不抛出到界面崩溃。
-    """
-    text = (user_message or "").strip()
-    if not text:
-        return "请先输入你的问题哦～", []
-    if len(text) > MAX_USER_CHARS:
-        return f"问题太长啦（超过 {MAX_USER_CHARS} 字），请缩短后再问。", []
-
-    grade = grade or DEFAULT_GRADE
-    rag_items: list[dict] = []
-    if use_rag:
-        try:
-            rag_items = retrieve(text, grade)
-        except Exception:  # noqa: BLE001
-            rag_items = []
-
-    try:
-        messages = build_messages(text, history, grade, rag_items)
-        answer = chat_once(messages)
-        return answer, rag_items
-    except LLMError as exc:
-        return f"抱歉，老师暂时连不上大模型：{exc}", rag_items
-    except Exception as exc:  # noqa: BLE001
-        return f"抱歉，回答时出错了：{exc}", rag_items
+    """非流式封装：取流式最后一帧。"""
+    result = ("", [])
+    for result in reply_stream(user_message, history, grade, use_rag=use_rag):
+        pass
+    return result
 
 
 def format_rag_debug(items: list[dict]) -> str:

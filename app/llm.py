@@ -47,6 +47,35 @@ def chat_once(
     return content
 
 
+def chat_stream(
+    messages: list[dict[str, str]],
+    *,
+    model: str | None = None,
+    temperature: float = 0.7,
+):
+    """流式对话：逐段 yield 文本 delta。"""
+    try:
+        client = get_client()
+        stream = client.chat.completions.create(
+            model=model or DEEPSEEK_MODEL,
+            messages=messages,
+            temperature=temperature,
+            stream=True,
+        )
+    except LLMError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise LLMError(f"调用 DeepSeek 失败：{exc}") from exc
+
+    for chunk in stream:
+        try:
+            delta = chunk.choices[0].delta.content or ""
+        except (AttributeError, IndexError):
+            delta = ""
+        if delta:
+            yield delta
+
+
 def chat_json(
     messages: list[dict[str, str]],
     *,

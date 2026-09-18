@@ -15,8 +15,8 @@ if str(_ROOT) not in sys.path:
 import gradio as gr
 
 from app.agents import run_multi_agents
-from app.chat import format_rag_debug, reply
-from app.config import SERVER_NAME, SERVER_PORT, ensure_data_dirs
+from app.chat import format_rag_debug, reply_stream
+from app.config import GRADIO_SHARE, IMAGE_DIR, SERVER_NAME, SERVER_PORT, ensure_data_dirs
 from app.multimodal.image_gen import generate_image, suggest_prompt_from_answer
 from app.multimodal.sandbox import TEMPLATES, run_python
 from app.multimodal.tts import synthesize
@@ -30,7 +30,6 @@ from app.quiz import (
 )
 from app.rag import build_index
 from app.ui_style import (
-    CUSTOM_CSS,
     ICON_AGENTS,
     ICON_BOOK,
     ICON_CHAT,
@@ -42,6 +41,7 @@ from app.ui_style import (
     ICON_QUIZ,
     ICON_TEACHER,
     agent_title_html,
+    build_custom_css,
     build_theme,
     demo_steps_html,
     grade_status_html,
@@ -64,17 +64,34 @@ def on_grade_change(grade: str) -> str:
     return grade_status_html(grade, THEME_HINT.get(grade, ""))
 
 
-def chat_respond(
-    message: str,
-    history: list[dict[str, Any]],
-    grade: str,
-) -> tuple[list[dict[str, Any]], str, str, str]:
+def chat_add_user(message: str, history: list[dict[str, Any]] | None):
+    """立刻把用户气泡写入对话框并清空输入框。"""
     history = list(history or [])
-    answer, rag_items = reply(message, history, grade)
-    history.append({"role": "user", "content": message})
-    history.append({"role": "assistant", "content": answer})
-    debug = format_rag_debug(rag_items)
-    return history, debug, answer, message
+    text = (message or "").strip()
+    if text:
+        history.append({"role": "user", "content": text})
+    return history, "", text
+
+
+def chat_bot_stream(
+    history: list[dict[str, Any]] | None,
+    grade: str,
+    last_user: str,
+):
+    """流式生成助手回复。"""
+    history = list(history or [])
+    message = (last_user or "").strip()
+    if not message:
+        yield history, "（请先输入问题）", "", ""
+        return
+
+    prior = history[:-1] if history and history[-1].get("role") == "user" else history
+    history.append({"role": "assistant", "content": "正在检索并思考…"})
+    yield history, "正在检索知识库…", "", message
+
+    for answer, rag_items in reply_stream(message, prior, grade):
+        history = history[:-1] + [{"role": "assistant", "content": answer}]
+        yield history, format_rag_debug(rag_items), answer, message
 
 
 def clear_chat():
@@ -271,15 +288,23 @@ def build_ui() -> gr.Blocks:
                         img_status = gr.Textbox(label="配图状态", lines=1)
 
                 send.click(
-                    chat_respond,
-                    inputs=[msg, chatbot, grade],
+                    chat_add_user,
+                    inputs=[msg, chatbot],
+                    outputs=[chatbot, msg, last_user],
+                ).then(
+                    chat_bot_stream,
+                    inputs=[chatbot, grade, last_user],
                     outputs=[chatbot, rag_debug, last_answer, last_user],
-                ).then(lambda: "", outputs=msg)
+                )
                 msg.submit(
-                    chat_respond,
-                    inputs=[msg, chatbot, grade],
+                    chat_add_user,
+                    inputs=[msg, chatbot],
+                    outputs=[chatbot, msg, last_user],
+                ).then(
+                    chat_bot_stream,
+                    inputs=[chatbot, grade, last_user],
                     outputs=[chatbot, rag_debug, last_answer, last_user],
-                ).then(lambda: "", outputs=msg)
+                )
                 clear_btn.click(
                     clear_chat,
                     outputs=[chatbot, rag_debug, last_answer, last_user],
@@ -430,13 +455,17 @@ def main() -> None:
     port = _pick_port(SERVER_PORT)
     if port != SERVER_PORT:
         print(f"端口 {SERVER_PORT} 已被占用，改用 {port}")
-    print(f"打开浏览器访问: http://{SERVER_NAME}:{port}")
+    print(f"本机访问: http://127.0.0.1:{port}")
+    if GRADIO_SHARE:
+        print("正在创建 Gradio 公网分享链接（需联网，请稍候）…")
     demo.queue().launch(
         server_name=SERVER_NAME,
         server_port=port,
+        share=GRADIO_SHARE,
         show_error=True,
         theme=build_theme(),
-        css=CUSTOM_CSS,
+        css=build_custom_css(),
+        allowed_paths=[str(IMAGE_DIR)],
     )
 
 

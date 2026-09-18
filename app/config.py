@@ -19,6 +19,13 @@ WANX_MODEL = os.getenv("WANX_MODEL") or "wanx-v1"
 
 SERVER_NAME = os.getenv("SERVER_NAME") or "127.0.0.1"
 SERVER_PORT = int(os.getenv("SERVER_PORT") or "7860")
+# Gradio 公网临时分享（https://xxxx.gradio.live）
+GRADIO_SHARE = (os.getenv("GRADIO_SHARE") or "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 KNOWLEDGE_DIR = ROOT_DIR / "knowledge_base"
 CHROMA_DIR = ROOT_DIR / "data" / "chroma"

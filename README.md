@@ -77,5 +77,6 @@ data/progress/       # 练习记录
 
 Gradio · DeepSeek API · ChromaDB · LangChain Text Splitters · DashScope 万相 · Edge TTS
 
-##（重要！可以预先准备图片，在介绍一般概念的时候用图片辅助呈现）
+## （重要！可以预先准备图片，在介绍一般概念的时候用图片辅助呈现）
 生成虚拟图像
+## 接入图像模型，扩展知识库
